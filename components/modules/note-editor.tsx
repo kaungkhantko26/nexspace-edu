@@ -146,6 +146,7 @@ export function NoteEditor({ moduleId, noteId }: NoteEditorProps) {
   const [saved, setSaved] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const noteTitle = content.match(/^#\s+(.+)$/m)?.[1] ?? "Untitled Lecture Notes";
 
   useEffect(() => {
     const cached = window.localStorage.getItem(storageKey);
@@ -190,8 +191,10 @@ export function NoteEditor({ moduleId, noteId }: NoteEditorProps) {
 
     const editorScrollable = editor.scrollHeight - editor.clientHeight;
     const previewScrollable = preview.scrollHeight - preview.clientHeight;
-    editor.scrollTop = lastScrollRatioRef.current * Math.max(0, editorScrollable);
-    preview.scrollTop = lastScrollRatioRef.current * Math.max(0, previewScrollable);
+    const source = syncLockRef.current === "preview" ? preview : editor;
+    const ratio = Math.min(1, Math.max(0, lastScrollRatioRef.current || (source.scrollTop / Math.max(1, source.scrollHeight - source.clientHeight))));
+    editor.scrollTop = ratio * Math.max(0, editorScrollable);
+    preview.scrollTop = ratio * Math.max(0, previewScrollable);
   }, [content]);
 
   function syncScroll(source: "editor" | "preview") {
@@ -265,12 +268,31 @@ export function NoteEditor({ moduleId, noteId }: NoteEditorProps) {
     });
   }
 
+  function setNoteTitle(title: string) {
+    const cleanTitle = title.trimStart();
+    setContent((current) => {
+      if (current.match(/^#\s+.+$/m)) {
+        return current.replace(/^#\s+.+$/m, `# ${cleanTitle || "Untitled Lecture Notes"}`);
+      }
+      return `# ${cleanTitle || "Untitled Lecture Notes"}\n\n${current}`;
+    });
+  }
+
   function applyBlock(type: string) {
     const textarea = textareaRef.current;
     const start = textarea?.selectionStart ?? content.length;
     const lineStart = content.lastIndexOf("\n", start - 1) + 1;
+    const nextLineBreak = content.indexOf("\n", start);
+    const lineEnd = nextLineBreak === -1 ? content.length : nextLineBreak;
+    const line = content.slice(lineStart, lineEnd);
     const marker = type === "h1" ? "# " : type === "h2" ? "## " : type === "h3" ? "### " : type === "quote" ? "> " : "";
-    setContent(`${content.slice(0, lineStart)}${marker}${content.slice(lineStart)}`);
+    const cleaned = line.replace(/^(#{1,6}\s+|>\s+|[-*]\s+|\d+\.\s+)/, "");
+    const next = `${content.slice(0, lineStart)}${marker}${cleaned || "Paragraph text"}${content.slice(lineEnd)}`;
+    setContent(next);
+    requestAnimationFrame(() => {
+      textarea?.focus();
+      textarea?.setSelectionRange(lineStart + marker.length, lineStart + marker.length + (cleaned || "Paragraph text").length);
+    });
   }
 
   async function autoGenerateFromFile(file: File) {
@@ -344,7 +366,12 @@ export function NoteEditor({ moduleId, noteId }: NoteEditorProps) {
             <div className="mt-3 flex items-center gap-3">
               <span className="h-3 w-3 rounded-full bg-emerald-500" />
               <div>
-                <h1 className="font-display text-3xl font-semibold">L01 Data to Intelligence</h1>
+                <input
+                  value={noteTitle}
+                  onChange={(event) => setNoteTitle(event.target.value)}
+                  className="w-full max-w-xl rounded-xl border border-transparent bg-transparent font-display text-3xl font-semibold outline-none transition focus:border-slate-200 focus:bg-white focus:px-3 focus:py-1"
+                  aria-label="Note title"
+                />
                 <p className="mt-1 text-sm text-slate-500">C230 Data Wrangling and Automation</p>
               </div>
             </div>
@@ -376,8 +403,8 @@ export function NoteEditor({ moduleId, noteId }: NoteEditorProps) {
         </div>
       </div>
 
-      <section className="mx-auto grid max-w-7xl gap-5 p-4 sm:p-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:p-8">
-        <div className="flex min-h-[calc(100vh-11rem)] flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+      <section className="mx-auto grid max-w-7xl items-stretch gap-5 p-4 sm:p-6 lg:h-[calc(100vh-10.5rem)] lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:p-8">
+        <div className="flex h-[72vh] min-h-[36rem] flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm lg:h-full lg:min-h-0">
           <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
             <div className="flex items-center gap-2">
               <Columns2 className="h-5 w-5 text-[#5b5cf6]" />
@@ -398,11 +425,12 @@ export function NoteEditor({ moduleId, noteId }: NoteEditorProps) {
             <button onClick={() => applyBlock("quote")} className="rounded-lg border border-slate-200 bg-white p-2 text-slate-600 transition hover:text-slate-950" aria-label="Quote">
               <Quote className="h-4 w-4" />
             </button>
-            <select onChange={(event) => applyBlock(event.target.value)} defaultValue="" className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none">
-              <option value="" disabled>Font</option>
+            <select onChange={(event) => { applyBlock(event.target.value); event.currentTarget.value = ""; }} defaultValue="" className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none">
+              <option value="" disabled>Style</option>
               <option value="h1">Title</option>
               <option value="h2">Section</option>
               <option value="h3">Small Heading</option>
+              <option value="p">Paragraph</option>
             </select>
             <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5">
               <Palette className="h-4 w-4 text-slate-500" />
@@ -414,6 +442,12 @@ export function NoteEditor({ moduleId, noteId }: NoteEditorProps) {
               <Type className="mr-1 inline h-3.5 w-3.5" />
               Section
             </button>
+            <button onClick={() => applyBlock("h1")} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition hover:text-slate-950">
+              H1 Title
+            </button>
+            <button onClick={() => applyBlock("p")} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition hover:text-slate-950">
+              P
+            </button>
           </div>
           {uploadError && <p className="border-b border-rose-100 bg-rose-50 px-5 py-2 text-sm text-rose-700">{uploadError}</p>}
           <textarea
@@ -421,12 +455,12 @@ export function NoteEditor({ moduleId, noteId }: NoteEditorProps) {
             value={content}
             onChange={(event) => setContent(event.target.value)}
             onScroll={() => syncScroll("editor")}
-            className="min-h-0 flex-1 resize-none bg-white p-5 font-mono text-sm leading-7 text-slate-800 outline-none placeholder:text-slate-400"
+            className="min-h-0 flex-1 resize-none overflow-y-auto bg-white p-5 font-mono text-sm leading-7 text-slate-800 outline-none placeholder:text-slate-400"
             placeholder="Write or paste lecture notes here..."
           />
         </div>
 
-        <div className="flex min-h-[calc(100vh-11rem)] flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+        <div className="flex h-[72vh] min-h-[36rem] flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm lg:h-full lg:min-h-0">
           <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
             <div className="flex items-center gap-2">
               <Bot className="h-5 w-5 text-[#5b5cf6]" />
