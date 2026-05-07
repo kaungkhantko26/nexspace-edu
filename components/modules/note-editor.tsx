@@ -137,7 +137,9 @@ export function NoteEditor({ moduleId, noteId }: NoteEditorProps) {
   const sourceKey = useMemo(() => `${storageKey}:source`, [storageKey]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const previewRef = useRef<HTMLElement>(null);
-  const syncSourceRef = useRef<"editor" | "preview" | null>(null);
+  const syncLockRef = useRef<"editor" | "preview" | null>(null);
+  const syncTimerRef = useRef<number | null>(null);
+  const lastScrollRatioRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [content, setContent] = useState(seedNote);
   const [sourceText, setSourceText] = useState("");
@@ -175,22 +177,43 @@ export function NoteEditor({ moduleId, noteId }: NoteEditorProps) {
     window.setTimeout(() => setSaved(false), 1600);
   }
 
+  useEffect(() => {
+    return () => {
+      if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    const editor = textareaRef.current;
+    const preview = previewRef.current;
+    if (!editor || !preview) return;
+
+    const editorScrollable = editor.scrollHeight - editor.clientHeight;
+    const previewScrollable = preview.scrollHeight - preview.clientHeight;
+    editor.scrollTop = lastScrollRatioRef.current * Math.max(0, editorScrollable);
+    preview.scrollTop = lastScrollRatioRef.current * Math.max(0, previewScrollable);
+  }, [content]);
+
   function syncScroll(source: "editor" | "preview") {
     const editor = textareaRef.current;
     const preview = previewRef.current;
-    if (!editor || !preview || syncSourceRef.current) return;
+    if (!editor || !preview) return;
+    if (syncLockRef.current && syncLockRef.current !== source) return;
 
     const sourceElement = source === "editor" ? editor : preview;
     const targetElement = source === "editor" ? preview : editor;
-    const sourceScrollable = sourceElement.scrollHeight - sourceElement.clientHeight;
-    const targetScrollable = targetElement.scrollHeight - targetElement.clientHeight;
-    const ratio = sourceScrollable > 0 ? sourceElement.scrollTop / sourceScrollable : 0;
+    const sourceScrollable = Math.max(1, sourceElement.scrollHeight - sourceElement.clientHeight);
+    const targetScrollable = Math.max(0, targetElement.scrollHeight - targetElement.clientHeight);
+    const ratio = Math.min(1, Math.max(0, sourceElement.scrollTop / sourceScrollable));
 
-    syncSourceRef.current = source;
+    lastScrollRatioRef.current = ratio;
+    syncLockRef.current = source;
     targetElement.scrollTop = ratio * targetScrollable;
-    requestAnimationFrame(() => {
-      syncSourceRef.current = null;
-    });
+
+    if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
+    syncTimerRef.current = window.setTimeout(() => {
+      syncLockRef.current = null;
+    }, 90);
   }
 
   async function regenerateNote() {
