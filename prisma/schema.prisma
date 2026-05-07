@@ -1,0 +1,156 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Plan {
+  FREE
+  PRO_STUDENT
+  UNIVERSITY
+}
+
+enum FileStatus {
+  PROCESSING
+  INDEXED
+  FAILED
+}
+
+model User {
+  id            String   @id @default(cuid())
+  clerkId       String   @unique
+  email         String   @unique
+  name          String?
+  plan          Plan     @default(FREE)
+  chats         Chat[]
+  assignments   Assignment[]
+  files         UploadedFile[]
+  notes         Note[]
+  flashcards    Flashcard[]
+  detectorReports AiDetectorReport[]
+  studySessions StudySession[]
+  analytics     AnalyticsEvent[]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Chat {
+  id        String        @id @default(cuid())
+  userId    String
+  title     String
+  mode      String
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages  ChatMessage[]
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+}
+
+model ChatMessage {
+  id        String   @id @default(cuid())
+  chatId    String
+  role      String
+  content   String
+  chat      Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+}
+
+model UploadedFile {
+  id        String      @id @default(cuid())
+  userId    String
+  name      String
+  mimeType  String
+  size      Int
+  storageKey String
+  status    FileStatus  @default(PROCESSING)
+  summary   String?
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  chunks    DocumentChunk[]
+  createdAt DateTime    @default(now())
+}
+
+model DocumentChunk {
+  id        String       @id @default(cuid())
+  fileId    String
+  content   String
+  embedding Json?
+  file      UploadedFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  createdAt DateTime     @default(now())
+}
+
+model Assignment {
+  id          String   @id @default(cuid())
+  userId      String
+  title       String
+  brief       String
+  criteria    Json
+  score       Int      @default(0)
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reports     PlagiarismReport[]
+  createdAt   DateTime @default(now())
+}
+
+model PlagiarismReport {
+  id            String      @id @default(cuid())
+  assignmentId  String?
+  similarity    Int
+  sourceMatches Json
+  highlighted   Json
+  assignment    Assignment? @relation(fields: [assignmentId], references: [id], onDelete: SetNull)
+  createdAt     DateTime    @default(now())
+}
+
+model AiDetectorReport {
+  id             String   @id @default(cuid())
+  userId         String
+  humanScore     Int
+  aiScore        Int
+  confidence     Int
+  sentenceScores Json
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt      DateTime @default(now())
+}
+
+model Note {
+  id        String   @id @default(cuid())
+  userId    String
+  title     String
+  content   String
+  tags      String[]
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Flashcard {
+  id          String   @id @default(cuid())
+  userId      String
+  front       String
+  back        String
+  difficulty  Int      @default(1)
+  nextReview  DateTime?
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+}
+
+model StudySession {
+  id        String   @id @default(cuid())
+  userId    String
+  title     String
+  startsAt  DateTime
+  duration  Int
+  completed Boolean  @default(false)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+}
+
+model AnalyticsEvent {
+  id        String   @id @default(cuid())
+  userId    String
+  type      String
+  value     Json
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+}
